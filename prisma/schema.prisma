@@ -8,20 +8,22 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(cuid())
+  id           String       @id @default(cuid())
   name         String
-  email        String        @unique
+  email        String       @unique
   title        String?
   department   String?
   bio          String?
   phone        String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  clerkId      String        @unique
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  clerkId      String       @unique
+  role         UserRole     @default(USER)
+
+  // Relations
   applications Application[]
   interviews   Interview[]
   positions    Position[]
-  role         UserRole      @default(USER)
 }
 
 enum UserRole {
@@ -43,8 +45,10 @@ model Position {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   userId       String
-  applications Application[]
   createdBy    User          @relation(fields: [userId], references: [id])
+
+  // Relations
+  applications Application[]
 }
 
 enum PositionStatus {
@@ -62,11 +66,13 @@ model Candidate {
   resumeUrl    String?
   skills       String[]
   experience   String?
+  status       CandidateStatus @default(ACTIVE)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+
+  // Relations
   applications Application[]
   interviews   Interview[]
-  status       CandidateStatus @default(ACTIVE)
 }
 
 enum CandidateStatus {
@@ -76,25 +82,27 @@ enum CandidateStatus {
 }
 
 model Application {
-  id          String      @id @default(cuid())
-  jobId       String
-  candidateId String
-  userId      String?
-  resumeUrl   String
-  coverLetter String?
-  status      ApplicationStatus @default(PENDING)
-  matchScore  Int?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  email       String
-  experience  String?
+  id           String      @id @default(cuid())
+  candidateId  String
+  userId       String?
+  positionId   String
+  resumeUrl    String
+  coverLetter  String?
+  matchScore   Int        @default(0)
+  status       ApplicationStatus @default(PENDING)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Candidate Data (denormalized for efficiency)
   name        String
+  email       String
   phone       String?
-  positionId  String?
+  experience  String?
   skills      String[]
+
+  // Relations
   candidate   Candidate   @relation(fields: [candidateId], references: [id])
-  job         Job         @relation(fields: [jobId], references: [id])
-  position    Position?   @relation(fields: [positionId], references: [id])
+  position    Position    @relation(fields: [positionId], references: [id])
   user        User?       @relation(fields: [userId], references: [id])
   interviews  Interview[]
 }
@@ -106,27 +114,6 @@ enum ApplicationStatus {
   REJECTED
   HIRED
   WITHDRAWN
-}
-
-model Job {
-  id           String        @id @default(cuid())
-  title        String
-  company      String
-  location     String
-  description  String
-  requirements String
-  salary       String?
-  type         String
-  status       JobStatus     @default(ACTIVE)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  applications Application[]
-}
-
-enum JobStatus {
-  ACTIVE
-  CLOSED
-  ARCHIVED
 }
 
 model Interview {
@@ -141,6 +128,8 @@ model Interview {
   applicationId String
   candidateId   String
   userId        String
+
+  // Relations
   application   Application @relation(fields: [applicationId], references: [id])
   candidate     Candidate   @relation(fields: [candidateId], references: [id])
   scheduler     User        @relation(fields: [userId], references: [id])
@@ -153,3 +142,4 @@ enum InterviewStatus {
   NO_SHOW
   RESCHEDULED
 }
+
