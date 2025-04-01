@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  title        String?
+  department   String?
+  bio          String?
+  phone        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  clerkId      String        @unique
+  applications Application[]
+  interviews   Interview[]
+  positions    Position[]
+}
+
+model Candidate {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  phone        String?
+  resumeUrl    String?
+  skills       String[]
+  experience   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  applications Application[]
+  interviews   Interview[]
+}
+
+model Position {
+  id           String        @id @default(cuid())
+  title        String
+  department   String
+  location     String
+  type         String
+  description  String
+  requirements String
+  status       String        @default("Open")
+  postedDate   DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  userId       String
+  applications Application[]
+  createdBy    User          @relation(fields: [userId], references: [id])
+}
+
+model Job {
+  id           String        @id @default(cuid())
+  title        String
+  company      String
+  location     String
+  description  String
+  requirements String
+  salary       String?
+  type         String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  applications Application[]
+}
+
+model Application {
+  id          String      @id @default(cuid())
+  jobId       String
+  candidateId String
+  userId      String
+  resumeUrl   String
+  coverLetter String?
+  status      String      @default("PENDING")
+  matchScore  Int?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  email       String
+  experience  String?
+  name        String
+  phone       String?
+  positionId  String?
+  skills      String[]
+  candidate   Candidate   @relation(fields: [candidateId], references: [id])
+  job         Job         @relation(fields: [jobId], references: [id])
+  position    Position?   @relation(fields: [positionId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+  interviews  Interview[]
+}
+
+model Interview {
+  id            String      @id @default(cuid())
+  scheduledFor  DateTime
+  duration      Int         @default(60)
+  meetingUrl    String?
+  notes         String?
+  status        String      @default("Scheduled")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  applicationId String
+  candidateId   String
+  userId        String
+  application   Application @relation(fields: [applicationId], references: [id])
+  candidate     Candidate   @relation(fields: [candidateId], references: [id])
+  scheduler     User        @relation(fields: [userId], references: [id])
+}
