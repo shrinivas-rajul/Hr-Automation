@@ -1,46 +1,55 @@
 import { NextResponse } from "next/server"
+import prisma from "@/lib/db"
+import { Prisma } from "@prisma/client"
 import { auth } from "@clerk/nextjs/server"
-import prisma from "@/lib/prisma"
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library"
 
 // Helper function to retry a database operation with exponential backoff
 async function withRetry<T>(
   operation: () => Promise<T>,
-  maxRetries = 3,
-  delay = 1000
+  maxRetries: number = 3,
+  initialDelay: number = 1000
 ): Promise<T> {
   let lastError: Error | null = null;
+  
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
     } catch (error) {
       lastError = error as Error;
+      console.error(`Database operation failed (attempt ${attempt}/${maxRetries}):`, error);
       
-      // Check if error is a connection issue that might be resolved by retrying
-      if (
-        error instanceof PrismaClientKnownRequestError && 
-        (error.code === 'P1001' || error.code === 'P1002' || error.code === 'P1008' || error.code === 'P1017')
-      ) {
-        console.log(`Database operation failed (attempt ${attempt}/${maxRetries}). Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        // Exponential backoff
-        delay *= 2;
-      } else {
-        // For other errors, don't retry
-        throw error;
-      }
+      if (attempt === maxRetries) break;
+      
+      // Exponential backoff
+      const delay = initialDelay * Math.pow(2, attempt - 1);
+      console.log(`Retrying in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
   
-  // If we've exhausted all retries, throw the last error
   throw lastError;
+}
+
+// Helper function to check database connection
+async function checkDatabaseConnection() {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return true;
+  } catch (error) {
+    console.error("Database connection check failed:", error);
+    return false;
+  }
 }
 
 export async function POST(request: Request) {
   try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    // Check database connection first
+    const isConnected = await checkDatabaseConnection();
+    if (!isConnected) {
+      return NextResponse.json(
+        { error: "Database connection error", details: "Unable to connect to the database. Please try again later." },
+        { status: 503 }
+      );
     }
 
     const body = await request.json()
@@ -67,22 +76,35 @@ export async function POST(request: Request) {
       )
     }
 
+    // Log job ID for debugging
+    console.log("Looking up job with ID:", jobId)
+
     // Ensure skills is an array
     const skillsArray = Array.isArray(skills) ? skills : [skills]
 
     try {
       // Check if the job exists first
-      const job = await prisma.job.findUnique({
-        where: { id: jobId }
-      });
+      const job = await withRetry(() => 
+        prisma.job.findUnique({
+          where: { id: jobId }
+        })
+      );
+
+      console.log("Job lookup result:", job)
 
       // If job not found, check positions table (alternative job table)
       if (!job) {
-        const position = await prisma.position.findUnique({
-          where: { id: jobId }
-        });
+        console.log("Job not found in jobs table, checking positions...")
+        const position = await withRetry(() =>
+          prisma.position.findUnique({
+            where: { id: jobId }
+          })
+        );
+
+        console.log("Position lookup result:", position)
 
         if (!position) {
+          console.error("Job not found in either table. Job ID:", jobId)
           return NextResponse.json(
             { error: "Job not found", details: "The job you're applying to doesn't exist or has been removed." },
             { status: 404 }
@@ -98,94 +120,106 @@ export async function POST(request: Request) {
           },
           update: {
             name,
-            phone,
-            resumeUrl,
+            phone: phone || undefined,
             skills: skillsArray,
-            experience,
+            experience: experience || undefined,
+            updatedAt: new Date(),
           },
           create: {
-            name,
             email,
-            phone: phone || "",
-            resumeUrl,
+            name,
+            phone: phone || undefined,
             skills: skillsArray,
-            experience: experience || "",
+            experience: experience || undefined,
           },
         })
       );
 
-      console.log("Created/Updated candidate:", candidate)
+      console.log("Candidate created/updated:", candidate)
 
-      // Then create the application with retry logic
-      const application = await withRetry(() => 
-        prisma.application.create({
-          data: {
-            jobId,
-            candidateId: candidate.id,
-            resumeUrl,
-            coverLetter: coverLetter || "",
-            name,
-            email,
-            phone: phone || "",
-            skills: skillsArray,
-            experience: experience || "",
-            matchScore: matchScore || 0,
-            userId,
-            status: "PENDING",
-          },
-        })
-      );
-
-      console.log("Created application:", application)
-      return NextResponse.json(application)
-    } catch (dbError) {
-      console.error("Database operation error:", dbError)
-      
-      // Provide more informative error messages for specific database errors
-      if (dbError instanceof PrismaClientKnownRequestError) {
-        // Handle foreign key constraint violation
-        if (dbError.code === 'P2003') {
-          const fieldName = dbError.meta?.field_name as string | undefined;
-          if (fieldName && fieldName.includes('jobId')) {
-            return NextResponse.json(
-              { 
-                error: "Invalid job reference", 
-                details: "The job you're applying to doesn't exist or has been removed." 
-              },
-              { status: 404 } 
-            );
-          } else if (fieldName && fieldName.includes('userId')) {
-            return NextResponse.json(
-              { 
-                error: "User reference error", 
-                details: "There was a problem with your user account. Please try logging out and back in." 
-              },
-              { status: 400 } 
-            );
+      // Try to get the authenticated user's ID if available
+      let userId: string | undefined = undefined;
+      try {
+        const authResult = await auth();
+        if (authResult?.userId) {
+          // Find the corresponding user in our database
+          const dbUser = await prisma.user.findUnique({
+            where: { clerkId: authResult.userId }
+          });
+          if (dbUser) {
+            userId = dbUser.id;
           }
         }
-        
-        // Handle connection errors
-        if (dbError.code === 'P1001') {
+      } catch (authError) {
+        console.log("No authenticated user, creating application without user ID");
+      }
+
+      // Create or get system user for unauthenticated applications
+      if (!userId) {
+        const systemUser = await prisma.user.upsert({
+          where: { email: "system@example.com" },
+          update: {},
+          create: {
+            email: "system@example.com",
+            name: "System User",
+            clerkId: "system",
+          },
+        });
+        userId = systemUser.id;
+      }
+
+      // Create the application with proper relations
+      const applicationData = {
+        jobId,
+        candidateId: candidate.id,
+        userId,
+        resumeUrl,
+        coverLetter: coverLetter || null,
+        status: "PENDING",
+        matchScore: matchScore || 0,
+        email,
+        name,
+        skills: skillsArray,
+        experience: experience || null
+      };
+
+      console.log("Creating application with data:", applicationData);
+
+      const application = await withRetry(() =>
+        prisma.application.create({
+          data: applicationData
+        })
+      );
+
+      console.log("Application created:", application)
+
+      return NextResponse.json(
+        { message: "Application submitted successfully", applicationId: application.id },
+        { status: 201 }
+      )
+    } catch (error) {
+      console.error("Database operation error:", error)
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        // Handle specific Prisma errors
+        if (error.code === "P2003") {
           return NextResponse.json(
-            { 
-              error: "Database connection failed", 
-              details: "Unable to connect to the database. Please try again later or contact support." 
-            },
-            { status: 503 } // Service Unavailable
+            { error: "Invalid job ID", details: "The job you're applying to doesn't exist." },
+            { status: 400 }
+          )
+        }
+        if (error.code === "P1001") {
+          return NextResponse.json(
+            { error: "Database connection error", details: "Please try again later." },
+            { status: 503 }
           )
         }
       }
-      
-      return NextResponse.json(
-        { error: "Database operation failed", details: dbError instanceof Error ? dbError.message : "Unknown database error" },
-        { status: 500 }
-      )
+      throw error // Re-throw other errors
     }
   } catch (error) {
-    console.error("Error creating application:", error)
+    console.error("Application submission error:", error)
     return NextResponse.json(
-      { error: "Failed to create application", details: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Internal server error", details: "An unexpected error occurred." },
       { status: 500 }
     )
   }
@@ -224,7 +258,7 @@ export async function GET(request: Request) {
     console.error("Error fetching applications:", error)
     
     // Provide a more informative error message for connection issues
-    if (error instanceof PrismaClientKnownRequestError && error.code === 'P1001') {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P1001') {
       return NextResponse.json(
         { 
           error: "Database connection failed", 

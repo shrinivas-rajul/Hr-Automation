@@ -82,11 +82,12 @@ async function getJob(id: string) {
   }
 }
 
-export default async function JobPage({ params }: { params: { id: string } }) {
-  const job = await getJob(params.id)
+export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = await params;
+  const job = await getJob(resolvedParams.id);
   
   if (!job) {
-    notFound()
+    notFound();
   }
 
   return (

@@ -19,7 +19,6 @@ import { ArrowLeft, ArrowRight, FileText, User, Mail, Phone, Briefcase, CheckCir
 
 export default function ApplyPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params)
-  
   const router = useRouter()
   const formRef = useRef<HTMLFormElement>(null)
   const [step, setStep] = useState(1)
@@ -140,6 +139,9 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
         throw new Error("Please enter a valid email address")
       }
 
+      // Log the job ID for debugging
+      console.log("Job ID from params:", resolvedParams.id)
+
       // Prepare the data for submission
       const applicationData = {
         jobId: resolvedParams.id,
@@ -155,8 +157,8 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
 
       console.log("Submitting application data:", applicationData)
 
-      // First attempt
-      let response = await fetch("/api/applications", {
+      // Submit application
+      const response = await fetch("/api/applications", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -164,76 +166,52 @@ export default function ApplyPage({ params }: { params: Promise<{ id: string }> 
         body: JSON.stringify(applicationData),
       })
 
-      // Auto-retry once if there's a database connection error (503)
-      if (response.status === 503) {
-        toast({
-          title: "Database connection issue",
-          description: "We're having trouble connecting to our database. Retrying...",
-          variant: "default",
-        })
-        
-        // Wait 2 seconds before retrying
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // Retry the request
-        response = await fetch("/api/applications", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(applicationData),
-        })
-      }
-
       const data = await response.json()
+      console.log("Response status:", response.status)
+      console.log("Response data:", data)
 
       if (!response.ok) {
-        console.error("Application submission error:", data)
+        console.error("Application submission error:", { status: response.status, data })
         
         // Handle specific error cases
         if (response.status === 404) {
-          // Job not found
           toast({
             title: "Job Not Found",
             description: "The job you're applying to no longer exists or has been removed.",
             variant: "destructive",
           })
-          
-          // Redirect back to jobs listing after a delay
-          setTimeout(() => {
-            router.push("/jobs");
-          }, 3000);
-          
-          return;
-        } else if (response.status === 503) {
-          // Database connection issue
-          throw new Error(
-            "We're having trouble connecting to our database. " +
-            "Please try again later or contact support if the issue persists."
-          )
+          return
+        } else if (response.status === 400) {
+          toast({
+            title: "Invalid Data",
+            description: data.error || "Please check your application data and try again.",
+            variant: "destructive",
+          })
+          return
         } else {
-          // Other errors
-          throw new Error(data.error || data.details || "Failed to submit application")
+          toast({
+            title: "Error",
+            description: data.error || data.details || "There was a problem submitting your application. Please try again.",
+            variant: "destructive",
+          })
+          return
         }
       }
 
-      console.log("Application submitted successfully:", data)
-
+      // Success
       toast({
-        title: "Application submitted successfully",
-        description: "Your application has been received. We'll review it and get back to you soon.",
+        title: "Application Submitted",
+        description: "Your application has been submitted successfully! We'll review your application and get back to you soon.",
         variant: "default",
       })
 
-      // Navigate to success page
+      // Redirect to success page
       router.push(`/jobs/${resolvedParams.id}/apply/success`)
     } catch (error) {
       console.error("Error submitting application:", error)
-      
-      // Display more user-friendly error message
       toast({
-        title: "Application Submission Failed",
-        description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
+        title: "Error",
+        description: error instanceof Error ? error.message : "There was a problem submitting your application.",
         variant: "destructive",
       })
     } finally {

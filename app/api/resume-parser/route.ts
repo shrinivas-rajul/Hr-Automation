@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { writeFile, unlink } from "fs/promises"
+import { writeFile, unlink, access } from "fs/promises"
 import { exec } from "child_process"
 import { promisify } from "util"
 import { join } from "path"
@@ -65,12 +65,15 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   } finally {
-    // Clean up temporary file using Windows-compatible method
+    // Clean up temporary file if it exists
     if (tempFilePath) {
       try {
+        // Check if file exists before trying to delete
+        await access(tempFilePath)
         await unlink(tempFilePath)
       } catch (cleanupError) {
-        console.error("Error cleaning up temporary file:", cleanupError)
+        // Ignore errors if file doesn't exist or can't be deleted
+        // This is expected in some cases and not critical
       }
     }
   }

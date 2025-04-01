@@ -1,21 +1,19 @@
-import { PrismaClient } from "@prisma/client"
+import { PrismaClient } from '@prisma/client'
 
-const globalForPrisma = global as unknown as { prisma: PrismaClient }
-
-// Log Prisma connection issues and add retry logic
-let prisma: PrismaClient;
-
-if (process.env.NODE_ENV === "production") {
-  prisma = new PrismaClient();
-} else {
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = new PrismaClient({
-      log: ["query", "error", "warn"],
-      errorFormat: "pretty",
-    });
-  }
-  prisma = globalForPrisma.prisma;
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined
 }
+
+const prisma = globalForPrisma.prisma ?? new PrismaClient({
+  log: ['query', 'error', 'warn'],
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    },
+  },
+})
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
 
 // Verify connection on startup
 const verifyConnection = async () => {

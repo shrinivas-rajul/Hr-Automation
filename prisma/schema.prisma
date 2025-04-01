@@ -21,6 +21,37 @@ model User {
   applications Application[]
   interviews   Interview[]
   positions    Position[]
+  role         UserRole      @default(USER)
+}
+
+enum UserRole {
+  ADMIN
+  RECRUITER
+  USER
+}
+
+model Position {
+  id           String        @id @default(cuid())
+  title        String
+  department   String
+  location     String
+  type         String
+  description  String
+  requirements String
+  status       PositionStatus @default(OPEN)
+  postedDate   DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  userId       String
+  applications Application[]
+  createdBy    User          @relation(fields: [userId], references: [id])
+}
+
+enum PositionStatus {
+  OPEN
+  CLOSED
+  DRAFT
+  ARCHIVED
 }
 
 model Candidate {
@@ -35,47 +66,23 @@ model Candidate {
   updatedAt    DateTime      @updatedAt
   applications Application[]
   interviews   Interview[]
+  status       CandidateStatus @default(ACTIVE)
 }
 
-model Position {
-  id           String        @id @default(cuid())
-  title        String
-  department   String
-  location     String
-  type         String
-  description  String
-  requirements String
-  status       String        @default("Open")
-  postedDate   DateTime      @default(now())
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  userId       String
-  applications Application[]
-  createdBy    User          @relation(fields: [userId], references: [id])
-}
-
-model Job {
-  id           String        @id @default(cuid())
-  title        String
-  company      String
-  location     String
-  description  String
-  requirements String
-  salary       String?
-  type         String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  applications Application[]
+enum CandidateStatus {
+  ACTIVE
+  ARCHIVED
+  BLACKLISTED
 }
 
 model Application {
   id          String      @id @default(cuid())
   jobId       String
   candidateId String
-  userId      String
+  userId      String?
   resumeUrl   String
   coverLetter String?
-  status      String      @default("PENDING")
+  status      ApplicationStatus @default(PENDING)
   matchScore  Int?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
@@ -88,8 +95,38 @@ model Application {
   candidate   Candidate   @relation(fields: [candidateId], references: [id])
   job         Job         @relation(fields: [jobId], references: [id])
   position    Position?   @relation(fields: [positionId], references: [id])
-  user        User        @relation(fields: [userId], references: [id])
+  user        User?       @relation(fields: [userId], references: [id])
   interviews  Interview[]
+}
+
+enum ApplicationStatus {
+  PENDING
+  REVIEWING
+  SHORTLISTED
+  REJECTED
+  HIRED
+  WITHDRAWN
+}
+
+model Job {
+  id           String        @id @default(cuid())
+  title        String
+  company      String
+  location     String
+  description  String
+  requirements String
+  salary       String?
+  type         String
+  status       JobStatus     @default(ACTIVE)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  applications Application[]
+}
+
+enum JobStatus {
+  ACTIVE
+  CLOSED
+  ARCHIVED
 }
 
 model Interview {
@@ -98,7 +135,7 @@ model Interview {
   duration      Int         @default(60)
   meetingUrl    String?
   notes         String?
-  status        String      @default("Scheduled")
+  status        InterviewStatus @default(SCHEDULED)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   applicationId String
@@ -107,4 +144,12 @@ model Interview {
   application   Application @relation(fields: [applicationId], references: [id])
   candidate     Candidate   @relation(fields: [candidateId], references: [id])
   scheduler     User        @relation(fields: [userId], references: [id])
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
 }
